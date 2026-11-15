@@ -1,0 +1,111 @@
+#!/bin/bash
+
+source "/dibom/src/bash/inc.sh"
+trap -- "" EXIT
+
+function filetime()
+{
+	stat -c "%Y" "$1"
+}
+
+function systime()
+{
+	date "+%s"
+}
+
+function run()
+{
+	local dir="$1"
+	local rawname="$2"
+	local log="$3"
+	local img="$4"
+	
+	local day="$(date +%Y%m%d)"
+	
+	echo "$log  ->  $img"
+	local start="true"
+	local open="eog $img"
+	if (( "$(ps -aux | grep "eog $img" | wc -l)" >= 2 )) ; then
+		open=""
+	fi
+
+	while true ; do
+		if [ ! -e "$img" ] ; then
+			echo "$img does not exist"
+			start="true"
+		elif [ "$img" -ot "$log" ] \
+		  || [ "$img" -ot "$dir/draw-$rawname" ] ; then
+			start="true"
+		elif (( "$(systime)" - "$(filetime "$img")" > 60 * 60 )) ; then
+			echo "$img timed out"
+			start="true"
+		fi
+		if [ "$start" = "true" ] ; then
+			start="false"
+			if ! "$dir/draw-$rawname" "$log" "$img" ; then
+				return 1
+			fi
+			echo "$img  ->  $img.png"
+			convert "$img" "$img.png"
+		fi
+		if [ ! -z "$open" ] ; then
+			eval "$open" &
+			open=""
+		fi
+		sleep 5
+		local newday="$(date +%Y%m%d)"
+		if [ "$newday" != "$day" ] ; then
+			return
+		fi
+	done
+}
+
+function main()
+{
+	local dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+	local rawname="$(basename "${BASH_SOURCE[0]}")"
+	rawname="${rawname#*-}"
+	local name="$(basename "$dir")-$rawname"
+	local config="$dir/$(basename "$dir").cfg"
+
+	local host="pi0"
+	local usr="pi"
+
+	local cmd=""
+	if [ "$(hostname)" != "$host" ] ; then
+		cmd+="ssh $usr@$host "
+	fi
+	cmd+="cat $config"
+	eval "$(parse_config < <(eval $cmd))"
+	
+	local logtmp="/run/user/$UID/$name.tmp"
+	local logimg="/run/user/$UID/$name.bmp"
+	
+	local cmd=""
+	if [ "$(hostname)" != "$host" ] ; then
+		cmd+="ssh $usr@$host "
+	fi
+	cmd+="tail -n +1 -f ${out[outfile]} "
+	cmd+="> $logtmp"
+
+	if [ "$(hostname)" != "$host" ] ; then
+		eval "scp $usr@$host:${out[outfile]}.3 $logtmp.3"
+		eval "scp $usr@$host:${out[outfile]}.2 $logtmp.2"
+		eval "scp $usr@$host:${out[outfile]}.1 $logtmp.1"
+	else
+		eval "cp ${out[outfile]}.3 $logtmp.3"
+		eval "cp ${out[outfile]}.2 $logtmp.2"
+		eval "cp ${out[outfile]}.1 $logtmp.1"
+	fi
+	
+	while true ; do
+		eval $cmd &
+		local pid=$!
+		sleep 5
+		run "$dir" "$rawname" "$logtmp" "$logimg"
+		kill "$pid"
+		sleep "$((60*5))"
+	done
+}
+
+main "$@"

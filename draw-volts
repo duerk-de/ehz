@@ -1,0 +1,165 @@
+#!/bin/bash
+
+function imgcfg_out()
+{
+	local img="$1"
+	local log="$2"
+	
+	cat <<EOF
+
+imgx = 1175
+imgy = 1500
+border = 3
+
+# monday, before new year
+year2025start = 1735516800
+yearstart = year2025start - timezoneof now * hours
+
+# x1 = $(date +%s -d "2026-09-26 0:15")
+x1 = now
+# y0  = -0.13
+y0  = -0.16
+y1  =  0.00
+
+lumscale = 6 / 1000
+xmin  = -yearstart + x1 - 40 * hours
+xmax  = -yearstart + x1
+ymin  = y0
+ymax  = y1
+
+gridxtype = date
+# gridx = 1 hours
+gridx = 15 mins
+gridy = 0.0005
+gridl = 0.5
+griddl = 1.0
+grid
+
+bailout = true
+bailin = true
+backward = true
+
+time            =  1
+power           =  2
+ncol = power
+powerbatt       =  3
+stat_foff       =  4
+stat_cons       =  5
+stat_setp_err   =  6
+stat_var        =  7
+level           =  8
+volt            =  9
+volt_diff       = 10
+volt_max        = 11
+volt_min        = 12
+hivolt          = 13
+full            = 14
+powerdiff       = 15
+volt_num_const  = 16
+
+total     = 0
+solar     = 1
+external  = 2
+generator = 3
+battery   = 4
+
+data : $log
+data : $log.1
+data : $log.2
+data : $log.3
+avg  = 12
+step = 1
+type = points
+datax : col[time+battery*ncol] - yearstart
+
+# lum   : 7 * lumscale
+# datay : col[volt+battery*ncol]
+# plot
+# datay : col[volt_max+battery*ncol]
+# plot
+# datay : col[volt_min+battery*ncol]
+# plot
+
+volt_lum = 0.5
+plotx : 1.2 * xpxls
+# ploty : 1.6 * ypxls
+ploty : 0.0005
+sat   : 3
+hue   : 180
+lum   : 2 * lumscale * volt_lum
+datay : y1 - [ col[volt_max+battery*ncol] - col[volt+battery*ncol] ]
+plot
+lum   : 7 * lumscale * volt_lum
+datay : y1 - [ col[volt_max+battery*ncol] - col[volt_min+battery*ncol] ]
+plot
+
+vnc_scale = 0.002
+vnc_lum = 0.5
+vnc_y = -0.002
+plotx : 0.9 * xpxls
+ploty : 1.6 * ypxls
+sat   : 3
+lum   : 12 * lumscale * vnc_lum
+hue   : 245
+datay : vnc_y - col[volt_num_const+battery*ncol] * vnc_scale / 4
+plot
+datay : vnc_y + col[volt_num_const+battery*ncol] * vnc_scale / 4
+plot
+datay : vnc_y
+lum   : 8 * lumscale * vnc_lum
+hue   : 260
+ploty : col[volt_num_const+battery*ncol] * vnc_scale / 2
+plot
+lum   : 2 * lumscale * vnc_lum
+hue   : 120
+ploty : col[volt_num_const+battery*ncol] * vnc_scale / 5
+plot
+
+data : $log
+data : $log.1
+data : $log.2
+data : $log.3
+avg  = 2 hours
+step = 1
+type = points
+
+avg_lum = 1.0
+plotx : 0.9 * xpxls
+ploty : 0.9 * ypxls
+lum   : 3 * lumscale * avg_lum
+hue   : 225
+datay : col[volt+battery*ncol] - col[volt_max+battery*ncol]
+plot
+datay : col[volt_min+battery*ncol] - col[volt_max+battery*ncol]
+plot
+lum   : 4 * lumscale * avg_lum
+hue   : 250
+datay : y1 + col[volt_min+battery*ncol] - col[volt+battery*ncol]
+plot
+
+var_lum = 0.4
+plotx : 0.9 * xpxls
+ploty : 1.2 * ypxls
+lum   : 2 * lumscale * var_lum
+hue   : 20
+datay : y0 + [ var[volt+battery*ncol] / var[volt_max+battery*ncol] ] * [ y1 - y0 ]
+plot
+datay : y0 + [ var[volt_min+battery*ncol] / var[volt_max+battery*ncol] ] * [ y1 - y0 ]
+plot
+
+out   : $img
+
+EOF
+
+}
+
+function drawout()
+{
+	local log="$1"
+	local img="$2"
+	
+	# imgcfg_out "$img" "$log" | xargs -d \\n printf " '%s'" draw
+	imgcfg_out "$img" "$log" | xargs -d \\n draw
+}
+
+drawout "$@"

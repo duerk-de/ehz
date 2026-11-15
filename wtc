@@ -1,0 +1,178 @@
+#!/bin/bash
+
+source "/dibom/src/bash/inc.sh"
+
+function filetime_millis()
+{
+	local file="$1"
+	local s="$(date -r "$file" +%s%N)"
+	filetime_millis_res="${s:0:-6}"
+}
+
+function systime_millis()
+{
+	local s="$(date +%s%N)"
+	systime_millis_res="${s:0:-6}"
+}
+
+function fullscreen()
+{
+	local end_of_input="$1"
+	local to_origin="$(tput home)"
+	local clr_end_of_screen="$(tput ed)"
+	local clr_end_of_line="$(tput el)"
+	local nlines="$(tput lines)"
+	local ncols="$(tput cols)"
+	local lbuf buf=
+	local iline
+	(( iline = 0 ))
+	while IFS= read -r line ; do
+		if (( iline < nlines )) ; then
+			if (( iline == 0 )) ; then
+				printf -v lbuf "%s%.*s%s" "$to_origin" "$ncols" "$line" "$clr_end_of_line"
+			else
+				printf -v lbuf "%s%.*s%s" $'\n' "$ncols" "$line" "$clr_end_of_line"
+			fi
+			buf+="$lbuf"
+		fi
+		(( iline = iline + 1 ))
+		if [ "$line" = "$end_of_input" ] ; then
+			printf -v lbuf "%s" "$clr_end_of_screen"
+			buf+="$lbuf"
+			echo -n "$buf"
+			buf=
+			(( iline = 0 ))
+			nlines="$(tput lines)"
+			ncols="$(tput cols)"
+		fi
+	done
+	printf -v lbuf "%s" "$clr_end_of_screen"
+	buf+="$lbuf"
+	echo -n "$buf"
+}
+
+function getconfig()
+{
+	local dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+	local name="$(basename "$dir")"
+	echo "$dir/$name.cfg"
+}
+
+function livefile()
+{
+	local raw="$1"
+	local delay
+	while true ; do
+		uptime
+		local str=
+		local line0 line1 line2=
+		while IFS= read -r line0 ; do
+			if [ -z "$line0" ] ; then
+				continue
+			fi
+			str+="$line0"$'\n'
+			line2="$line1"
+			line1="$line0"
+		done < "$raw"
+		filetime_millis "$raw"
+		systime_millis
+
+		local pwr_to_adjust
+		if ! [[ "$line2" =~ ^[^\)]*?\)\ *(-?[0-9]+)W ]] ; then
+			>&2 echo "invalid line:"
+			>&2 echo "$line2"
+			>&2 echo "within"
+			>&2 echo "$str"
+			pwr_to_adjust = 9999
+		else
+			(( pwr_to_adjust = - ( ${BASH_REMATCH[1]} ) ))
+		fi
+		
+		local t0 t1
+		(( t0 = uptime_ms ))
+		uptime
+		(( t1 = uptime_ms ))
+		
+		local age delay proc target
+		(( target = 50 ))
+		(( age = systime_millis_res - filetime_millis_res ))
+		(( proc = t1 - t0 ))
+		(( delay = 1000 - age - proc + target ))
+		
+		case "$type" in
+			adj)
+				printf "%+5iW\n" "$pwr_to_adjust"
+				;;
+			*)
+				echo -n "$raw"$'\n'"age: $age ms (target: $target)"$'\n'"$str" | fullscreen
+				;;
+		esac
+		
+		if (( delay < 0 || delay > 5000 )) ; then
+			(( delay = 1000 ))
+		fi
+		
+		sleepms "$delay"
+	done
+}
+
+function livebroadcast()
+{
+	local port="$1"
+	echo "$port"
+	nc -u -l -k -p "$port" | fullscreen
+}
+
+function battlevel()
+{
+	local port="$1"
+	echo "$port"
+	local level=0
+	local levelfrac="   "
+	local voltlevel=0
+	local voltlevelfrac="   "
+	local line
+	while IFS= read -r line ; do
+		if [[ "$line" =~ ^level\ *:\ *(-?[0-9]+)\.([0-9]+).*$ ]] ; then
+			level="${BASH_REMATCH[1]}"
+			levelfrac="${BASH_REMATCH[2]:0:1}"
+			printf "%3i.%s%%%4i%%\n\n" "$level" "$levelfrac" "$voltlevel" | fullscreen
+		fi
+		if [[ "$line" =~ ^voltlevel\ now\ *:\ *(-?[0-9]+)\.([0-9]+).*$ ]] ; then
+			voltlevel="${BASH_REMATCH[1]}"
+			voltlevelfrac="${BASH_REMATCH[2]:0:1}"
+			printf "%3i.%s%%%4i%%\n\n" "$level" "$levelfrac" "$voltlevel" | fullscreen
+		fi
+	done < <(nc -u -l -k -p "$port")
+}
+
+function main()
+{
+	local type="$1"
+	local port="$2"
+	
+	if [ -z "$type" ] ; then
+		type=udp
+	fi
+	if [ -z "$port" ] ; then
+		port=1
+	fi
+	
+	eval "$(read_config "$(getconfig)")"
+
+	case "$type" in
+		file)
+			livefile "${out[rawfile]}"
+			;;
+		battlevel)
+			battlevel "${out[udpport$port]}"
+			;;
+		udp)
+			livebroadcast "${out[udpport$port]}"
+			;;
+	esac
+
+	return 1
+}
+
+main "$@"

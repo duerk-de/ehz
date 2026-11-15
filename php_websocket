@@ -1,0 +1,121 @@
+#!/usr/bin/php
+<?php
+
+function decode( $data, $t, $line, $n )
+{
+	$json = json_decode( $line );
+	foreach( $json->ws->inverters as $inv )
+	{
+		if( !isset( $data->{$inv->serial} ) )
+		{
+			$data->{$inv->serial} = new stdClass();
+			$data->{$inv->serial}->time = $t;
+			$data->{$inv->serial}->times = '';
+		}
+		$d = $data->{$inv->serial};
+		$f = $json->fnc->{$inv->serial};
+	
+		$d->serial = $inv->serial;
+		$d->agemax = sprintf('%.2f',$t - $d->time)                    .sprintf(' %-'.$n.'s','s');
+		$d->time   = sprintf('%.3f',$t - $inv->data_age_ms / 1000);
+		$d->times  = date( 'Y-m-d H:i', $d->time );
+		$d->agemin = sprintf('%.2f',$t - $d->time)                    .sprintf(' %-'.$n.'s','s');
+		$d->age    = '';
+		$rs = $inv->radio_stats;
+ 		$d->rssi   = $rs->rssi                                        .sprintf(' %-'.$n.'s','dBm');
+ 		$d->rqst   = $rs->tx_request                                  .sprintf(' %-'.$n.'s','#');
+ 		$d->rqre   = $rs->tx_re_request                               .sprintf(' %-'.$n.'s','#');
+ 		$d->rqfail = ($rs->tx_request-$rs->rx_success)                .sprintf(' %-'.$n.'s','#');
+		$d->inpwr  = sprintf('%.1f',$inv->INV->{'0'}->{'Power DC'}->v).sprintf(' %-'.$n.'s',$inv->INV->{'0'}->{'Power DC'}->u);
+		$d->intemp = sprintf('%.1f',$inv->INV->{'0'}->Temperature ->v).sprintf(' %-'.$n.'s',$inv->INV->{'0'}->Temperature ->u);
+		$d->acpwr  = sprintf('%.1f',$inv->AC ->{'0'}->Power       ->v).sprintf(' %-'.$n.'s',$inv->AC ->{'0'}->Power       ->u);
+		$d->acvolt = sprintf('%.1f',$inv->AC ->{'0'}->Voltage     ->v).sprintf(' %-'.$n.'s',$inv->AC ->{'0'}->Voltage     ->u);
+		$d->accurr = sprintf('%.2f',$inv->AC ->{'0'}->Current     ->v).sprintf(' %-'.$n.'s',$inv->AC ->{'0'}->Current     ->u);
+		$d->acfreq = sprintf('%.2f',$inv->AC ->{'0'}->Frequency   ->v).sprintf(' %-'.$n.'s',$inv->AC ->{'0'}->Frequency   ->u);
+		$d->s0pwr  = sprintf('%.1f',$inv->DC ->{'0'}->Power       ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'0'}->Power       ->u);
+		$d->s1pwr  = sprintf('%.1f',$inv->DC ->{'1'}->Power       ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'1'}->Power       ->u);
+		$d->s2pwr  = sprintf('%.1f',$inv->DC ->{'2'}->Power       ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'2'}->Power       ->u);
+		$d->s3pwr  = sprintf('%.1f',$inv->DC ->{'3'}->Power       ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'3'}->Power       ->u);
+		$d->s0volt = sprintf('%.1f',$inv->DC ->{'0'}->Voltage     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'0'}->Voltage     ->u);
+		$d->s1volt = sprintf('%.1f',$inv->DC ->{'1'}->Voltage     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'1'}->Voltage     ->u);
+		$d->s2volt = sprintf('%.1f',$inv->DC ->{'2'}->Voltage     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'2'}->Voltage     ->u);
+		$d->s3volt = sprintf('%.1f',$inv->DC ->{'3'}->Voltage     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'3'}->Voltage     ->u);
+		$d->s0curr = sprintf('%.2f',$inv->DC ->{'0'}->Current     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'0'}->Current     ->u);
+		$d->s1curr = sprintf('%.2f',$inv->DC ->{'1'}->Current     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'1'}->Current     ->u);
+		$d->s2curr = sprintf('%.2f',$inv->DC ->{'2'}->Current     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'2'}->Current     ->u);
+		$d->s3curr = sprintf('%.2f',$inv->DC ->{'3'}->Current     ->v).sprintf(' %-'.$n.'s',$inv->DC ->{'3'}->Current     ->u);
+		$d->limit  = $f->limit_relative                               .sprintf(' %-'.$n.'s','%');
+		$d->limst  = $f->limit_set_status                             .sprintf(' %-'.$n.'s','');
+	}
+}
+
+function output( $data, $t, $n )
+{
+	$kl = 0;
+	$ks = new stdClass();
+	$sl = new stdClass();
+	foreach( $data as $s => $d )
+	{
+		$d->age    = sprintf('%.1f',$t - $d->time)                    .sprintf(' %-'.$n.'s','s');
+		foreach( $d as $k => $v )
+		{
+			if( !isset( $ks->$k ) ) $ks->$k = null;
+			if( !isset( $sl->$s ) ) $sl->$s = 0;
+			$kl = max( $kl, strlen( $k ) );
+			$sl->$s = max( $sl->$s, strlen( $v ) );
+		}
+	}
+	foreach( $ks as $k => $null )
+	{
+		printf( '%'.(-$kl).'s', $k );
+		foreach( $data as $s => $d )
+			printf( '%'.($sl->$s+2).'s', $d->$k );
+		printf( "\n" );
+			
+	}
+	printf( "\n" );
+}
+
+function tryreadbyte( $fd, $timeout )
+{
+	$rp = [$fd];
+	$wp = $ep = [];
+	$ts = (int)$timeout;
+	$tus = (int)( ( $timeout - $ts ) * 1000000 );
+	if( !stream_select( $rp, $wp, $ep, $ts, $tus ) )
+		return( null );
+	return( fgets( $fd, 1 + 1 ) );
+}
+
+
+function main( int $argc, array $argv ) : int
+{
+	$stdin = fopen( 'php://stdin', 'r' );
+	$to = 0.1;
+	$n = 3;
+	
+	$data = new stdClass();
+	$line = '';
+	$tp = 0;
+
+	while( true )
+	{
+		$c = tryreadbyte( $stdin, $to );
+		$line .= $c;
+		if( $c == "\n" )
+		{
+			decode( $data, gettimeofday( true ), $line, $n );
+			$line = '';
+		}
+		$t = gettimeofday( true );
+		if( ( $c == "\n" ) || ( $t - $tp > 0.05 ) )
+		{
+			output( $data, $t, $n );
+			$tp = $t;
+		}
+	}
+	
+	return( 1 );
+}
+
+main( $argc, $argv );

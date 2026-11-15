@@ -1,0 +1,3 @@
+#!/bin/bash
+
+ssh -t pi@pi0 'tail -n 100 -f /var/log/syslog | grep --color=always "ehz.*state"'

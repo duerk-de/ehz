@@ -1,0 +1,99 @@
+#!/bin/bash
+
+source "/dibom/src/bash/inc.sh"
+trap -- "" EXIT
+
+function filetime()
+{
+	stat -c "%Y" "$1"
+}
+
+function systime()
+{
+	date "+%s"
+}
+
+function run()
+{
+	local dir="$1"
+	local log="$2"
+	
+	local hostname="$(hostname)"
+	local img="/run/user/$UID/ehz.bmp"
+	case "$hostname" in
+		pi0)
+			img="/run/ehz.bmp"
+			;;
+		*)
+			img="/run/user/$UID/ehz.bmp"
+			;;
+	esac
+	
+	echo "$log  ->  $img"
+	local start="true"
+	local open
+	case "$hostname" in
+		pi0)
+			open="false"
+			;;
+		*)
+			if (( "$(ps -aux | grep "eog $img" | wc -l)" < 2 )) ; then
+				open="true"
+			else
+				open="false"
+			fi
+			;;
+	esac
+
+	while true ; do
+		if [ ! -e "$img" ] ; then
+			echo "$img does not exist"
+			start="true"
+		elif [ "$img" -ot "$log" ] \
+		  || [ "$img" -ot "$dir/draw" ] ; then
+			start="true"
+		elif (( "$(systime)" - "$(filetime "$img")" > 60 * 60 )) ; then
+			echo "$img timed out"
+			start="true"
+		fi
+		if [ "$start" = "true" ] ; then
+			start="false"
+			if ! "$dir/draw" "$img" "$log" ; then
+				return 1
+			fi
+			echo "$img  ->  $img.png"
+			rm -f "$img.new.png"
+			convert "$img" "$img.new.png"
+			rm -f "$img.old.png"
+			test -e "$img.png" && mv "$img.png" "$img.old.png"
+			mv "$img.new.png" "$img.png"
+			case "$hostname" in
+				pi0)
+					echo "$img.png  ->  odroid@odroidm1:/dev/shm/ehz.png"
+					if ! scp  -o StrictHostKeyChecking=no "$img.png" \
+					     "odroid@odroidm1:/dev/shm/ehz.png" ; then
+						echo "could not push image to odroidm1"
+					fi
+					;;
+			esac
+		fi
+		if [ "$open" = "true" ] ; then
+			eog "$img" &
+			open="false"
+		fi
+		sleep 5
+	done
+}
+
+function main()
+{
+	local dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+	local name="$(basename "$dir")"
+	local config="$dir/$name.cfg"
+	eval "$(read_config "$config")"
+
+	local log="${out[log1file]}"
+	run "$dir" "$log"
+}
+
+main "$@"

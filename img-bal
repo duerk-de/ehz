@@ -1,0 +1,152 @@
+#!/bin/bash
+
+source "/dibom/src/bash/inc.sh"
+trap -- "" EXIT
+
+function filetime()
+{
+	stat -c "%Y" "$1"
+}
+
+function systime()
+{
+	date "+%s"
+}
+
+function run()
+{
+	local dir="$1"
+	local log="$2"
+	local img1="/run/user/$UID/ehz-bal-1.bmp"
+	local img2="/run/user/$UID/ehz-bal-2.bmp"
+	local img3="/run/user/$UID/ehz-bal-3.bmp"
+
+	echo "$log  ->  $img"
+	local start="true"
+	local open="false"
+	if (( "$(ps -aux | grep "eog $img1" | wc -l)" < 2 )) ; then
+		open="true"
+	fi
+	if (( "$(ps -aux | grep "eog $img2" | wc -l)" < 2 )) ; then
+		open="true"
+	fi
+	if (( "$(ps -aux | grep "eog $img3" | wc -l)" < 2 )) ; then
+		open="true"
+	fi
+
+	while true ; do
+		if [ ! -e "$img1" ] || [ ! -e "$img2" ] || [ ! -e "$img3" ] ; then
+			echo "$img1 or $img2 does not exist"
+			start="true"
+		elif [ "$img1" -ot "$log" ] \
+		  || [ "$img2" -ot "$log" ] \
+		  || [ "$img3" -ot "$log" ] \
+		  || [ "$img1" -ot "$dir/draw-bal" ] \
+		  || [ "$img2" -ot "$dir/draw-bal" ] \
+		  || [ "$img3" -ot "$dir/draw-bal" ] ; then
+			start="true"
+		elif (( "$(systime)" - "$(filetime "$img1")" > 60 * 60 )) ; then
+			echo "$img1 timed out"
+			start="true"
+		elif (( "$(systime)" - "$(filetime "$img2")" > 60 * 60 )) ; then
+			echo "$img2 timed out"
+			start="true"
+		elif (( "$(systime)" - "$(filetime "$img3")" > 60 * 60 )) ; then
+			echo "$img3 timed out"
+			start="true"
+		fi
+		if [ "$start" = "true" ] ; then
+			start="false"
+			if ! "$dir/draw-bal" "$log" "$img1" "$img2" "$img3" ; then
+				return 1
+			fi
+			echo "$img1  ->  $img1.png"
+			convert "$img1" "$img1.png"
+			echo "$img2  ->  $img2.png"
+			convert "$img2" "$img2.png"
+			echo "$img3  ->  $img3.png"
+			convert "$img3" "$img3.png"
+		fi
+		if [ "$open" = "true" ] ; then
+			sleep 0.5
+			eog "$img1" &
+			sleep 0.5
+			eog "$img2" &
+			sleep 0.5
+			eog "$img3" &
+			open="false"
+		fi
+		break
+		sleep 5
+	done
+}
+
+function calc()
+{
+	# echo "$1" | sed 's/\([+\-]\?[0-9]*\.\?[0-9]*\)e\([+\-]\?[0-9]\+\)/(\1\*10\^\2)/g'
+	echo "$1" | sed 's/\([+\-]\?[0-9]*\.\?[0-9]*\)e\([+\-]\?[0-9]\+\)/(\1\*10\^\2)/g' | BC_LINE_LENGTH=0 bc -l
+}
+
+function main()
+{
+	local dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
+	local name="$(basename "$dir")"
+	local config="$dir/$name.cfg"
+
+	local host="pi0"
+	local usr="pi"
+
+	local cmd=""
+	if [ "$(hostname)" != "$host" ] ; then
+		cmd+="ssh $usr@$host "
+	fi
+	cmd+="cat $config"
+	eval "$(parse_config < <(eval $cmd))"
+
+	local logtmp="/run/user/$UID/ehz-bal.tmp"
+	local statetmp="/run/user/$UID/ehz-state.tmp"
+
+	local cmd=""
+	if [ "$(hostname)" != "$host" ] ; then
+		cmd+="ssh $usr@$host "
+	fi
+	# cmd+="grep bal\\\\\\\s*nor /dibom/var/ehz/state.log "
+	cmd+="cat /dibom/var/ehz/state.log "
+
+	truncate --size 0 "$logtmp"
+	truncate --size 0 "$statetmp"
+	local time statestr_from statestr_to state_from state_to duration rest
+	local totalduration=0
+	local numbal=0
+	local numdays=0
+	local lastdate=
+	while IFS=$'\t' read -r time statestr_from statestr_to state_from state_to duration rest ; do
+		if [ "$statestr_from" == "bal" ] && [ "$statestr_to" == "nor" ] ; then
+			totalduration="$(calc " scale=3; (($totalduration)+(($duration)/2))")"
+			(( numbal++ ))
+			local date="$(date -d "@$(calc "scale=0; $time/1")" "+%Y-%m-%d")"
+			if [ "$date" != "$lastdate" ] ; then
+				lastdate="$date"
+				(( numdays++ ))
+			fi
+			printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+				"$(date -d "@$(calc "scale=0; $time/1")" "+%Y-%m-%d_%H:%M:%S")" \
+				"$time" "$statestr_from" "$statestr_to" "$state_from" "$state_to" \
+				"$(calc "scale=1; $duration/60/60")" "$duration" "$totalduration" \
+				"$numbal" "$numdays" \
+				"$rest" >> "$logtmp"
+			totalduration="$(calc " scale=3; (($totalduration)+(($duration)/2))")"
+		fi
+		printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+			"$(date -d "@$(calc "scale=0; $time/1")" "+%Y-%m-%d_%H:%M:%S")" \
+			"$time" "$statestr_from" "$statestr_to" "$state_from" "$state_to" \
+			"$(calc "scale=1; $duration/60/60")" "$duration" "$totalduration" \
+			"$numbal" "$numdays" \
+			"$rest" >> "$statetmp"
+	done < <(eval $cmd)
+	echo "$statetmp"
+	run "$dir" "$logtmp"
+}
+
+main "$@"

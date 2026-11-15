@@ -1,0 +1,84 @@
+#!/bin/bash
+
+source "/dibom/src/bash/inc.sh"
+trap -- "" EXIT
+
+function calc()
+{
+	# echo "$1" | sed 's/\([+\-]\?[0-9]*\.\?[0-9]*\)e\([+\-]\?[0-9]\+\)/(\1\*10\^\2)/g'
+	echo "$1" | sed 's/\([+\-]\?[0-9]*\.\?[0-9]*\)e\([+\-]\?[0-9]\+\)/(\1\*10\^\2)/g' | BC_LINE_LENGTH=0 bc -l
+}
+
+function datestr()
+{
+	date -d "@$(calc "scale=0; $1 * 2 / 2")" "+%Y-%m-%d"
+}
+
+function main()
+{
+	local dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+
+	local name="$(basename "$dir")"
+	local config="$dir/$name.cfg"
+
+	local host="pi0"
+	local usr="pi"
+
+	local cmd=""
+	if [ "$(hostname)" != "$host" ] ; then
+		cmd+="ssh $usr@$host "
+	fi
+	cmd+="cat $config"
+	eval "$(parse_config < <(eval $cmd))"
+
+
+	local cmd=""
+	if [ "$(hostname)" != "$host" ] ; then
+		cmd+="ssh $usr@$host "
+	fi
+	cmd+="cat /dibom/var/ehz/state.log "
+
+	local time statestr_from statestr_to state_from state_to duration
+	local maxvolt avgvolt minvolt avgvoltdiff minvoltdiff
+	local energy energycharge energydischarge
+	(( time            =  0 ))
+	(( statestr_from   =  1 ))
+	(( statestr_to     =  2 ))
+	(( state_from      =  3 ))
+	(( state_to        =  4 ))
+	(( duration        =  5 ))
+	(( maxvolt         =  6 ))
+	(( avgvolt         =  7 ))
+	(( minvolt         =  8 ))
+	(( avgvoltdiff     =  9 ))
+	(( minvoltdiff     = 10 ))
+	(( energy          = 11 ))
+	(( energycharge    = 12 ))
+	(( energydischarge = 13 ))
+	local line line1
+	
+	while read -r line ; do
+		IFS=$'\t' line=($line)
+		
+		local type=
+		
+		if [ "${line[$statestr_to]}" = "emp" ] && \
+		   [ "${line1[$statestr_from]}" = "bal" ]  ; then
+			type="- - -   discharged"
+		fi
+		if [ "${line[$statestr_to]}" = "bal" ] && \
+		   [ "${line1[$statestr_from]}" = "emp" ]  ; then
+			type="+ + +   charged"
+		fi
+		if [ ! -z "$type" ] ; then
+			echo "$type:"
+			echo "$(datestr "${line1[$time]}")"$'\t'"${line1[*]}"
+			echo "$(datestr "${line[$time]}")"$'\t'"${line[*]}"
+			
+		fi
+
+		line1=("${line[@]}")
+	done < <(eval $cmd)
+}
+
+main "$@"

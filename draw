@@ -1,0 +1,210 @@
+#!/bin/bash
+
+function imgcfg_log()
+{
+	local img="$1"
+	local log="$2"
+	
+	cat <<EOF
+
+imgx = 1380
+imgy = 400
+border = 1.6
+
+# monday, before new year
+year2025start = 1735516800
+yearstart = year2025start - timezoneof now * hours
+
+y0  = -600
+y1  = 2000
+
+xmin  = -yearstart + now - 3 days
+xmax  = -yearstart + now + 3 hours
+ymin  = y0
+ymax  = y1
+
+gridxtype = date
+gridx = 0.5hours
+gridy = 50
+gridl = 0.8
+grid
+
+bailout = true
+backward = true
+
+time            =  1
+power           =  2
+power_forward   =  3
+power_backward  =  4
+energy_forward  =  5
+energy_backward =  6
+voltage_1       =  7
+voltage_2       =  8
+voltage_3       =  9
+frequency       = 10
+ncol = frequency
+
+total     = 0
+solar     = 1
+external  = 2
+generator = 3
+
+nentry = [ generator + 1 ] * ncol
+time_stat   = nentry + 1
+harvest_max = nentry + 2
+consume_min = nentry + 3
+batt_level  = nentry + 4
+volt_max    = nentry + 5
+volt_min    = nentry + 6
+volt_level  = nentry + 7
+
+data : $log
+data : $log.1
+avg  = 1
+step = 1
+type = points
+
+pxy = 1.3
+plotx : pxy * xpxls
+ploty : pxy * ypxls
+
+sensor = total
+lum   : 0.12
+sat   : 3
+hue   : -10
+datax : col[time+sensor*ncol] - yearstart
+datay : [ col[power+sensor*ncol] maximum y0 ] minimum y1
+plot
+
+sensor = solar
+lum   : 0.09
+sat   : 0.05
+hue   : 180
+datax : col[time+sensor*ncol] - yearstart
+datay : [ col[power+sensor*ncol] maximum y0 ] minimum y1
+plot
+
+data : $log
+data : $log.1
+type = line
+pxy = 0.9
+plotx : pxy * xpxls
+ploty : pxy * ypxls
+lum   : 0.03
+sat   : 0
+hue   : 230
+datax : now - yearstart
+datay : ymax - [ymax-ymin] * [[col[time]-yearstart]-xmin] / [[-yearstart + now]-xmin]
+plot
+
+steptime = 1 mins
+
+data : $log
+data : $log.1
+avg  = 2 hours / steptime
+step = avg / 2
+type = spline
+plotyscale = 0.5 / squareroot[avg]
+
+pxy = 1.6
+plotx : pxy * xpxls
+
+sensor = total
+ploty : [pxy * ypxls] maximum [var[2+sensor*ncol]*plotyscale]
+lum   : 0.15
+sat   : 3
+hue   : 0
+datax : col[time+sensor*ncol] - yearstart
+datay : col[power+sensor*ncol]
+plot
+
+sensor = external
+ploty : [pxy * ypxls] maximum [var[2+sensor*ncol]*plotyscale]
+lum   : 0.20
+sat   : 3
+hue   : 100
+datax : col[time+sensor*ncol] - yearstart
+datay : col[power_forward+sensor*ncol]
+plot
+
+sensor = external
+ploty : [pxy * ypxls] maximum [var[2+sensor*ncol]*plotyscale/2]
+lum   : 0.06
+sat   : 3
+hue   : 60
+datax : col[time+sensor*ncol] - yearstart
+datay : -col[power_backward+sensor*ncol]
+plot
+
+sensor = solar
+ploty : [pxy * ypxls] maximum [var[2+sensor*ncol]*plotyscale]
+lum   : 0.24
+sat   : 3
+hue   : 210
+datax : col[time+sensor*ncol] - yearstart
+datay : col[power+sensor*ncol]
+plot
+
+data : $log
+data : $log.1
+step = 5 mins / steptime
+avg  = 15 mins / steptime / step
+type = line
+bailout = true
+bailin = true
+
+pxy = 1.0
+plotx : pxy * xpxls
+ploty : pxy * ypxls
+
+lum   : 0.2
+sat   : 3
+hue   : 230
+datax : col[time_stat] - yearstart + 1 days
+datay : col[harvest_max]
+plot
+
+lum   : 0.12
+sat   : 3
+hue   : -15
+datax : col[time_stat] - yearstart + 1 days
+datay : col[consume_min]
+plot
+
+pxy = 3.0
+plotx : pxy * xpxls
+ploty : pxy * ypxls
+
+lum   : 0.05
+sat   : 3
+hue   : 170
+datax : col[time] - yearstart
+datay : col[batt_level] * [ y1 - y0 ] + y0
+plot
+
+a = 0
+lum   : a = [ col[volt_level] - 0.5 ] , 0.05 * [ a * a * a * a * 100 + 0.10 ] minimum 1
+sat   : 3
+hue   : 60
+datax : col[time] - yearstart
+datay : col[volt_level] * [ y1 - y0 ] + y0
+plot
+
+
+out   : $img
+
+EOF
+
+}
+
+function drawlog()
+{
+	local img="$1"
+	local log="$2"
+	
+	# imgcfg_log "$img" "$log" | xargs -d \\n printf "'%s' "
+	# echo
+	imgcfg_log "$img" "$log" | xargs -d \\n draw
+}
+
+drawlog "$@"

@@ -1,0 +1,388 @@
+#!/bin/bash
+
+. /dibom/src/bash/inc/basic.sh
+. /dibom/src/bash/inc/system.sh
+
+function parse_websocket()
+{
+	local fnc="$1"
+	local char header header_pos data_len
+	(( header_pos = 0 ))
+	(( data_len = 0 ))
+	while LANG=C IFS= read -r -d '' -n 1 char ; do
+		if (( data_len == 0 )) ; then
+			if (( header_pos == 0 )) ; then
+				header=
+			fi
+			header+="$char"
+			(( header_pos = header_pos + 1 ))
+			if (( header_pos == 4 )) ; then
+				if (( "$(echo -n "$header" | od -A none -N 2 --endian=big -t u2)" != 0x817e )) ; then
+					>&2 echo "invalid header signature: $(echo -n "$header" | od -A none -N 2 --endian=big -t x2)"
+					return 1
+				fi
+				(( data_len = "$(echo -n "$header" | od -A none -j 2 --endian=big -t u2)" ))
+				if (( $? != 0 )) ; then
+					>&2 echo "could not parse length in header: $(echo -n "$header" | od -A none -t x2)"
+					return 1
+				fi
+				if (( data_len < 0 || data_len > 0x10000 )) ; then
+					>&2 echo "invalid data length: $data_len"
+					return 1
+				fi
+				(( header_pos = 0 ))
+				echo -n '{"ws":'
+			fi
+		else
+			(( data_len = data_len - 1 ))
+			echo -n "$char"
+			if (( data_len == 0 )) ; then
+				if [ -z "$fnc" ] ; then
+					echo "}"
+					return 0
+				fi
+				if [ "$fnc" != "-" ] ; then
+					echo -n ',"fnc":'
+					eval "$fnc"
+				fi
+				echo "}"
+			fi
+		fi
+	done
+}
+
+function get_api_all()
+{
+	local credit="$1"
+	local api="$2"
+	local serials=("${@:3}")
+	local args=()
+	for inv in "${serials[@]}" ; do
+		args+=("$api/gridprofile/status?inv=$inv")
+	done
+	for inv in "${serials[@]}" ; do
+		args+=("$api/devinfo/status?inv=$inv")
+	done
+	for inv in "${serials[@]}" ; do
+		args+=("$api/eventlog/status?inv=$inv")
+	done
+	args+=("$api/limit/status")
+	args+=("$api/power/status")
+	args+=("$api/livedata/status")
+	curl -sS -m 5 -u "$credit" "${args[@]}"
+}
+
+function get_limits()
+{
+	local credit="$1"
+	local api="$2"
+	curl -sS -m 2 -u "$credit" "$api/limit/status"
+}
+
+function set_limit()
+{
+	local credit="$1"
+	local api="$2"
+	local serial="$3"
+	local val="$4"
+	
+	local data='{"serial":"'"$serial"'","limit_value":'"$val"',"limit_type":1}'
+	curl -sS -m 2 -u "$credit" "$api/limit/config" -F "data=$data"
+}
+
+function set_reboot()
+{
+	local credit="$1"
+	local api="$2"
+	
+	local data='{"reboot":true}'
+	curl -sS -m 2 -u "$credit" "$api/maintenance/reboot" -F "data=$data"
+}
+
+function get_serials()
+{
+	local credit="$1"
+	local api="$2"
+	curl -sS -m 2 -u "$credit" "$api/inverter/list"
+}
+
+function get_websocket()
+{
+	local credit="$1"
+	local srv="$2"
+
+	# >&2 echo "/mnt/sata/tmp/get_websocket.log"
+	
+	if ! curl -sS -u "$credit" \
+			--connect-timeout 2 \
+			--no-buffer \
+			--header "Connection: Upgrade" \
+			--header "Upgrade: websocket" \
+			--header "Sec-WebSocket-Version: 13" \
+			--header "Sec-WebSocket-Key: +ess5PPiaN1O1NwkLENqkw==" \
+			--header "Connection: keep-alive, Upgrade" \
+			--output - \
+			"$srv/livedata" # | tee /mnt/sata/tmp/get_websocket.log
+	then
+		>&2 echo "error get_websocket"
+		return 1
+	fi
+}
+
+function jq_websocket()
+{
+	local q=
+	q+='.ws.inverters[] | ['
+	q+=' {'
+	q+='  "rqst  " :   (.radio_stats.tx_request|tostring)                          '
+	q+=', "serial" :    .serial                                                    '
+	q+=', "age   " : ( (.data_age_ms          |tostring) +  "ms"                  )'
+	q+=', "inpwr " : ( (.INV."0"."Power DC" .v|tostring) + .INV."0"."Power DC" .u )'
+	q+=', "intemp" : ( (.INV."0".Temperature.v|tostring) + .INV."0".Temperature.u )'
+	q+=', "acpwr " : ( (.AC ."0".Power      .v|tostring) + .AC ."0".Power      .u )'
+	q+=', "acvolt" : ( (.AC ."0".Voltage    .v|tostring) + .AC ."0".Voltage    .u )'
+	q+=', "accurr" : ( (.AC ."0".Current    .v|tostring) + .AC ."0".Current    .u )'
+	q+=', "acfreq" : ( (.AC ."0".Frequency  .v|tostring) + .AC ."0".Frequency  .u )'
+	q+=', "s0pwr " : ( (.DC ."0".Power      .v|tostring) + .DC ."0".Power      .u )'
+	q+=', "s1pwr " : ( (.DC ."1".Power      .v|tostring) + .DC ."1".Power      .u )'
+	q+=', "s2pwr " : ( (.DC ."2".Power      .v|tostring) + .DC ."2".Power      .u )'
+	q+=', "s3pwr " : ( (.DC ."3".Power      .v|tostring) + .DC ."3".Power      .u )'
+	q+=', "s0volt" : ( (.DC ."0".Voltage    .v|tostring) + .DC ."0".Voltage    .u )'
+	q+=', "s1volt" : ( (.DC ."1".Voltage    .v|tostring) + .DC ."1".Voltage    .u )'
+	q+=', "s2volt" : ( (.DC ."2".Voltage    .v|tostring) + .DC ."2".Voltage    .u )'
+	q+=', "s3volt" : ( (.DC ."3".Voltage    .v|tostring) + .DC ."3".Voltage    .u )'
+	q+=', "s0curr" : ( (.DC ."0".Current    .v|tostring) + .DC ."0".Current    .u )'
+	q+=', "s1curr" : ( (.DC ."1".Current    .v|tostring) + .DC ."1".Current    .u )'
+	q+=', "s2curr" : ( (.DC ."2".Current    .v|tostring) + .DC ."2".Current    .u )'
+	q+=', "s3curr" : ( (.DC ."3".Current    .v|tostring) + .DC ."3".Current    .u )'
+	q+=' }'
+	q+=' ]'
+	echo "$q"
+}
+
+function jq_limits()
+{
+	local q=
+	q+=' ['
+	local i
+	local inv
+	(( i = 0 ))
+	for inv in "$@" ; do
+		if (( i != 0 )) ; then
+			q+=','
+		fi
+		q+=' {'
+		q+='  "serial " : "'"$inv"'"'
+		q+=', "acpwr  " : ((.fnc."'"$inv"'".max_power|tostring) + "W")'
+		q+=', "aclimit" : ((.fnc."'"$inv"'".limit_relative|tostring) + "%")'
+		q+=', "acstat " :   .fnc."'"$inv"'".limit_set_status'
+		q+=' }'
+		(( i = i + 1 ))
+	done
+	q+=' ]'
+	echo "$q"
+}
+
+function fullscreen()
+{
+	local end_of_input="$1"
+	local to_origin="$(tput home)"
+	local clr_end_of_screen="$(tput ed)"
+	local clr_end_of_line="$(tput el)"
+	local nlines="$(tput lines)"
+	local ncols="$(tput cols)"
+	local lbuf buf=
+	local iline
+	for (( iline = 0 ; iline < nlines - 1 ; iline++ )) ; do
+		buf+=$'\n'
+	done
+	echo -n "$buf"
+	buf=
+	(( iline = 0 ))
+	while IFS= read -r line ; do
+		if (( iline < nlines )) ; then
+			if (( iline == 0 )) ; then
+				printf -v lbuf "%s%.*s%s" "$to_origin" "$ncols" "$line" "$clr_end_of_line"
+			else
+				printf -v lbuf "%s%.*s%s" $'\n' "$ncols" "$line" "$clr_end_of_line"
+			fi
+			buf+="$lbuf"
+		fi
+		(( iline = iline + 1 ))
+		if [ "$line" = "$end_of_input" ] ; then
+			printf -v lbuf "%s" "$clr_end_of_screen"
+			buf+="$lbuf"
+			echo -n "$buf"
+			buf=
+			(( iline = 0 ))
+			nlines="$(tput lines)"
+			ncols="$(tput cols)"
+		fi
+	done
+	printf -v lbuf "%s" "$clr_end_of_screen"
+	buf+="$lbuf"
+	echo -n "$buf"
+}
+
+function live_websockets()
+{
+	local credit="$1"
+	local srv="$2"
+	local api="$3"
+	local serials=("${@:4}")
+
+	echo
+	echo "---------------------------------------------------------------------------"
+	echo
+	echo "parsed live data:"
+	echo
+	
+	local q=
+	q+='{'
+	q+='  stamp: ( now as $t | ($t | strflocaltime("%Y-%m-%d %H:%M:%S"))'
+	q+=' + "." + ((($t - ($t|floor)) * 1000) | floor | tostring as $ms'
+	q+=' | ($ms | (("0" * (3 - length))) + $ms)))'
+	q+=", limits: $(jq_limits "${serials[@]}")"
+	q+=", live: $(jq_websocket)"
+	q+='}'
+	local limit="get_limits ${credit@Q} ${api@Q}"
+	parse_websocket "$limit" < <(get_websocket "$credit" "$srv") \
+		| jq --unbuffered -r "$q" # | fullscreen "}"
+}
+
+function live_php_websockets()
+{
+	local credit="$1"
+	local srv="$2"
+	local api="$3"
+	local serials=("${@:4}")
+	
+	local dir="$(dirname "${BASH_SOURCE[0]}")"
+
+	echo
+	echo "---------------------------------------------------------------------------"
+	echo
+	echo "parsed live data:"
+	echo
+	
+	local limit="get_limits ${credit@Q} ${api@Q}"
+	parse_websocket "$limit" < <(get_websocket "$credit" "$srv") \
+		| "$dir"/php_websocket | fullscreen ""
+}
+
+function all_data()
+{
+	local credit="$1"
+	local srv="$2"
+	local api="$3"
+	local serials=("${@:4}")
+
+	echo
+	echo "available data websocket:"
+	echo
+	if ! parse_websocket < <(get_websocket "$credit" "$srv") | jq -r '.' ; then
+		>&2 echo "error parse_websocket"
+		return 1
+	fi
+	echo
+	echo "available data api:"
+	echo
+	if ! get_api_all "$credit" "$api" "${serials[@]}" | jq -r '.' ; then
+		>&2 echo "error get_api_all"
+		return 1
+	fi
+}
+
+function limit()
+{
+	local credit="$1"
+	local api="$2"
+	local limit="$3"
+	local serials=("${@:4}")
+
+	local serial
+	for serial in "${serials[@]}" ; do
+		local req
+		req="$(set_limit "$credit" "$api" "$serial" "$limit" | jq -r -M '.')"
+		if (( $? != 0 )) || ! grep '"type": "success"' < <(echo "$req") >/dev/null; then
+			>&2 echo "$req"
+			>&2 echo "error requesting limit of $limit for $serial"
+			return 1
+		fi
+	done
+	
+	while true ; do
+		local res
+		res="$(get_limits "$credit" "$api" | jq -r -M '.')"
+		if (( $? != 0 )) ; then
+			>&2 echo "$res"
+			>&2 echo "error requesting status of limit"
+		fi
+		local stati
+		IFS=$'\n' stati=($(sed -n -e 's/^ *"limit_set_status": "\([^"]*\)" *$/\1/p' \
+						 < <(echo "$res")))
+		if (( $? != 0 )) ; then
+			>&2 echo "error receiving status of limit"
+			return 1
+		fi
+		if ! grep -i '"Pending"' < <(echo "$res") >/dev/null ; then
+			local num_okay="$(grep -c -i '"Ok"' < <(echo "$res"))"
+			if (( num_okay != ${#serials[@]} )) ; then
+				>&2 echo "$res"
+				>&2 echo "error in status of limit"
+				return 1
+			fi
+			break
+		fi
+		sleep 0.1
+	done
+}
+
+function main()
+{
+	local credit="admin:tsts4444"
+	local server="dtu"
+	local srv="http://$server"
+	local api="$srv/api"
+	
+	local serials
+	IFS=$'\n' serials=($(get_serials "$credit" "$api" | jq -M -r ".inverter[].serial"))
+	echo "serials:" "${serials[@]}"
+	
+	# get_limits "$credit" "$api" | jq -r -M '.'
+	# return
+	
+	if [ -z "$1" ] ; then
+		all_data "$credit" "$srv" "$api" "${serials[@]}"
+		# sleep 5
+		# live_php_websockets "$credit" "$srv" "$api" "${serials[@]}"
+	else
+		if [ "$1" == "reboot" ] ; then
+			if ! set_reboot "$credit" "$api" | jq -r -M '.' ; then
+				return
+			fi
+			echo "done"
+		else
+			local limit="$1"
+			local t0 t1
+			uptime
+			(( t0 = uptime_ms ))
+			while true ; do
+				if ! limit "$credit" "$api" "$limit" "${serials[@]}" ; then
+					break
+				fi
+				uptime
+				(( t1 = uptime_ms ))
+				printf "done in %i ms\n" "$(( t1 - t0 ))"
+				break
+				sleepms "$(( $(urand 4) % 1000 ))"
+				uptime
+				(( t0 = uptime_ms ))
+			done
+		fi
+	fi
+	
+}
+
+main "$@"
+

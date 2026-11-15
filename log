@@ -1,0 +1,110 @@
+#!/bin/bash
+
+function output_file()
+{
+	local file="$1"
+	local ext="${file##*.}"
+	if [ "$ext" == "gz" ] ; then
+		gzip -d -c -k "$file"
+	else
+		cat "$file"
+	fi
+}
+
+function get_lines()
+{
+	local from="$1"
+	local to="$2"
+	local pre="$3"
+	local post="$4"
+	local name="$5"
+
+	local prestr="(.*) $(hostname) $ehz[^:]*: state: ([a-z]*) -> ([a-z]*): "
+	local duration="([^,]*)"
+	local svolts=", volts: "
+	local volts="([0-9]+\.[0-9]+)\.\.([0-9]+\.[0-9]+)\.\.([0-9]+\.[0-9]+)"
+	local sdvolts=", deltas: "
+	local dvolts="([0-9]+\.[0-9]+) ([0-9]+\.[0-9]+)"
+	local senergys=", energy: "
+	local energys="([-0-9]+\.[0-9]+) ([-0-9]+\.[0-9]+) ([-0-9]+\.[0-9]+)"
+
+	echo "$name: $from -> $to"
+	local data=
+	local time file
+	while read -r time file ; do
+		local lastmatch=
+		local lasttmatch=
+		local lastmatched="false"
+		local line
+		while read -r line ; do
+			# echo "$line"
+			if [[ "$line" =~ ^$prestr$duration$svolts$volts$sdvolts$dvolts$senergys$energys ]] ; then
+				local match=("${BASH_REMATCH[@]}")
+				local tmatch=(0 0 0)
+				if [[ "${match[ 4]}" =~ \ *([0-9]*):?([0-9]*)h ]] ; then
+					tmatch=("${BASH_REMATCH[@]}")
+				fi
+				local matched="false"
+				if (( ${tmatch[ 1]} > 0 )) && \
+				   [ -z "$from" -o "${match[2]}" = "$from" ] && \
+				   [ -z "$to" -o "${match[3]}" = "$to" ] ; then
+					matched="true"
+				fi
+				
+				if [ "$matched" = "true" -a "$pre" = "true" ] && \
+				   [ ! -z "$lastmatch" ] && [ ! -z "$lasttmatch" ] ; then
+					data+="${lastmatch[ 1]}"$'\t'
+					data+="${lastmatch[ 2]}"$'\t'
+					data+="${lastmatch[ 3]}"$'\t'
+					data+="${lastmatch[ 4]}"$'\t'
+					data+="$(date -d "${lastmatch[ 1]}" "+%s")"$'\t'
+					data+="${lasttmatch[1]}"$'\t'
+					data+="${lasttmatch[2]}"$'\t'
+					data+="${lastmatch[ 5]}"$'\t'
+					data+="${lastmatch[ 6]}"$'\t'
+					data+="${lastmatch[ 7]}"$'\t'
+					data+="${lastmatch[ 8]}"$'\t'
+					data+="${lastmatch[ 9]}"$'\t'
+					data+="${lastmatch[10]}"$'\t'
+					data+="${lastmatch[11]}"$'\t'
+					data+="${lastmatch[12]}"$'\n'
+				fi
+				if [ "$matched" = "true" ] || \
+				   [ "$post" = "true" -a "$lastmatched" = "true" ] ; then
+					data+="${match[ 1]}"$'\t'
+					data+="${match[ 2]}"$'\t'
+					data+="${match[ 3]}"$'\t'
+					data+="${match[ 4]}"$'\t'
+					data+="$(date -d "${match[ 1]}" "+%s")"$'\t'
+					data+="${tmatch[1]}"$'\t'
+					data+="${tmatch[2]}"$'\t'
+					data+="${match[ 5]}"$'\t'
+					data+="${match[ 6]}"$'\t'
+					data+="${match[ 7]}"$'\t'
+					data+="${match[ 8]}"$'\t'
+					data+="${match[ 9]}"$'\t'
+					data+="${match[10]}"$'\t'
+					data+="${match[11]}"$'\t'
+					data+="${match[12]}"$'\n'
+				fi
+				lastmatch=("${match[@]}")
+				lasttmatch=("${tmatch[@]}")
+				lastmatched="$matched"
+			fi
+		done < <(output_file "$file" | grep "ehz\[[0-9]*\]: state: ")
+	done < <(find "/var/log/" \
+	              -maxdepth 1 -type f \
+	              -name "syslog*" \
+	              -printf "%T+ %p\n" | sort)
+	echo -n "$data"
+}
+
+function main()
+{
+	get_lines "bal" ""    "false" "false" "balanced"
+	get_lines ""    "bal" "true"  "true"  "charged"
+	get_lines ""    "emp" "false" "false" "discharged"
+	get_lines "emp" ""    "false" "false" "low"
+}
+
+main "$@"

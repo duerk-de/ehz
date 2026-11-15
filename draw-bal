@@ -1,0 +1,235 @@
+#!/bin/bash
+
+function imgcfg_out()
+{
+	local log="$1"
+	local img1="$2"
+	local img2="$3"
+	local img3="$4"
+	
+	cat <<EOF
+
+imgx = 750
+imgy = 1000
+border = 3
+
+# monday, before new year
+year2025start = 1735516800
+yearstart = year2025start - timezoneof now * hours
+
+x0 = $(date +%s -d "2026-05-29 01:00")
+x1 = now
+x1 = x1 + [ x1 - x0 ] * 0.02
+y0 = 3.35
+y1 = 3.65
+
+xmin  = -yearstart + x0
+xmax  = -yearstart + x1
+ymin  = y0
+ymax  = y1
+
+gridxtype = date
+gridx = 1 weeks
+gridy = 0.02
+gridl = 5
+griddl = 1.5
+grid
+
+bailout = false
+bailin = false
+backward = false
+
+timestr         =  1
+time            =  2
+statestr_from   =  3
+statestr_to     =  4
+state_from      =  5
+state_to        =  6
+durationhours   =  7
+duration        =  8
+totalduration   =  9
+numbal          = 10
+numdays         = 11
+voltage_hi      = 12
+voltage_avg     = 13
+voltage_lo      = 14
+volt_diff_avg   = 15
+volt_diff_lo    = 16
+energy          = 17
+energy_forward  = 18
+energy_reverse  = 19
+
+lumscale = 0.1 / hours
+lummin = 0.3
+durmin = 1.5 hours
+durmin2 = 0.25 hours
+pltscale = 0.75 / hours
+durmax = 4.0 hours
+
+pxy = 2.4
+
+data : $log
+avg  = 1
+step = 1
+type = points
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 20
+datax : col[time] - yearstart
+datay : col[voltage_hi]
+plot
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 20
+datax : col[time] - yearstart
+datay : col[voltage_avg]
+plot
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 20
+datax : col[time] - yearstart
+datay : col[voltage_lo]
+plot
+
+out   : $img1
+
+
+x1n = 400 hours
+
+xpxls = xpxls / [ x1 - x0 ] * x1n
+pltxscale = pltscale * 2
+
+x0 = 0
+x1 = x1n
+
+xmin  = x0
+xmax  = x1
+ymin  = y0
+ymax  = y1
+borderset = false
+
+gridx = 1 days
+grid
+
+data : $log
+avg  = 1
+step = 1
+type = points
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltxscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 180
+datax : col[totalduration]
+datay : col[voltage_hi]
+plot
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltxscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 180
+datax : col[totalduration]
+datay : col[voltage_avg]
+plot
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltxscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 180
+datax : col[totalduration]
+datay : col[voltage_lo]
+plot
+
+out   : $img2
+
+
+
+x0n = 0
+x1n = 100
+y0n = -1.1
+y1n = 0.01
+
+xpxls = xpxls / [ x1 - x0 ] * [ x1n - x0n ]
+ypxls = ypxls / [ y1 - y0 ] * [ y1n - y0n ]
+
+x0 = x0n
+x1 = x1n
+y0 = y0n
+y1 = y1n
+
+xmin  = x0
+xmax  = x1
+ymin  = y0
+ymax  = y1
+borderset = false
+gridxtype = decimal
+gridx = 2
+gridy = 0.02
+grid
+
+data : $log
+avg  = 1
+step = 1
+type = points
+
+# volt_off = 3.34
+volt_off = 3.09
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 180
+datax : col[numdays]
+datay : [ col[voltage_hi] -  col[voltage_hi] ] / [ col[voltage_hi] - volt_off ] / [ col[voltage_hi] - volt_off ]
+plot
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 180
+datax : col[numdays]
+datay : [ col[voltage_avg] -  col[voltage_hi] ] / [ col[voltage_hi] - volt_off ] / [ col[voltage_hi] - volt_off ]
+plot
+
+plotx : pxy * xpxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+ploty : pxy * ypxls * [ [ col[duration] maximum durmin ] minimum durmax ] * pltscale
+lum   : [ col[duration] maximum durmin2 ] * lumscale
+sat   : 3
+hue   : 180
+datax : col[numdays]
+datay : [ col[voltage_lo] -  col[voltage_hi] ] / [ col[voltage_hi] - volt_off ] / [ col[voltage_hi] - volt_off ]
+plot
+
+out   : $img3
+
+
+EOF
+
+}
+
+function drawout()
+{
+	local log="$1"
+	local img1="$2"
+	local img2="$3"
+	local img3="$4"
+	
+	# imgcfg_out "$img" "$log" | xargs -d \\n printf " '%s'" draw
+	imgcfg_out "$log" "$img1" "$img2" "$img3" | xargs -d \\n draw
+}
+
+drawout "$@"
