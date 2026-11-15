@@ -4,11 +4,19 @@ ehz comes from "elektronischer Haushaltszähler". It is an efficient C++ based a
 
 ## Solar Generator
 
-It consists of an ac input of solar panels (not controlled, yet) and an AC battery (Marstek Venus E v3). Two power meters (B+G E-Tech WS100-1943) are monitoring the solar panels and the whole generator.
+It consists of an AC input of solar panels (not controlled, yet) and an AC battery (Marstek Venus E v3). Two power meters (B+G E-Tech WS100-1943) are monitoring the solar panels and the whole generator.
 
 ## Control Measurement
 
 A standard german power meter, capable of outputting data in the smart meter language (SML), is used.
+
+## Interface
+
+A lightweight SML parser is included. It interfaces via an IR adapter with the power meter. The IR adapter is connected via UART with an USB-UART converter to the host system.
+
+Other power meters and the battery are connected via RS485 to an USB-RS485 converter.
+
+In all cases the software uses standard Linux drivers (read,write,ioctl). FTDI USB adapters are recommended.
 
 ## Features
 
