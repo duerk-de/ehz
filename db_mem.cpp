@@ -2,9 +2,9 @@ __GIT_SYMLINKS__
 target=../_inc/db_mem.cpp
 target_resolved=/dibom/src/c/_inc/db_mem.cpp
 kind=file
-sha256=18498e4b897cc1164b50dac48c1fdd54d3d151350b78ff6d5f077cd5fb69958d
-size=35713
-created=2026-11-15T10:29:04.650112
+sha256=5cf9c00bc6442a4c910efd023a2494d2f448da3d0ce9f2521c69c18bf13849f1
+size=35719
+created=2026-11-16T20:49:12.745612
 --END-HEADER--
 #ifndef DB_MEM_INCLUDED
 #define DB_MEM_INCLUDED
@@ -319,8 +319,9 @@ inline bool d_memcmp( void const* buf1, void const* buf2, uint length )
 	{
 		uint const* b1 = (uint const*)buf1;
 		uint const* b2 = (uint const*)buf2;
-		uint j = length / sizeof(int);
-		for( ; i < j && b1[i] == b2[i]; i++ );
+		uint j = length / sizeof( uint );
+		while( i < j && b1[i] == b2[i] )
+			i++;
 		if( i != j )
 			return( false );
 		i *= sizeof( uint );

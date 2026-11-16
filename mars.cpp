@@ -434,6 +434,7 @@ struct mars_t
 	int discharge_power;
 	int charge_power_max;
 	int discharge_power_max;
+	int discharge_power_min;
 	uint nominal_capacity;
 	
 	mars_t( cfgsection_t & cfg, io_t & io, signals_t::data_t & _signals,
@@ -526,6 +527,7 @@ struct mars_t
 
 		charge_power_max = -(int)( cfg.entry<double>( "charge_power_max", 200.0 ) * (double)power_meter_t::pwr_milli );
 		discharge_power_max = (int)( cfg.entry<double>( "discharge_power_max", 200.0 ) * (double)power_meter_t::pwr_milli );
+		discharge_power_min = (int)( cfg.entry<double>( "discharge_power_min", 0.0 ) * (double)power_meter_t::pwr_milli );
 		nominal_capacity = (uint)( cfg.entry<double>( "nominal_capacity", 1000.0 ) * (double)power_meter_t::pwr_milli );
 	}
 	
@@ -767,7 +769,7 @@ struct mars_t
 		int charge_power_max_temp = charge_power_max;
 		if( data.temp < 10000 )
 		{
-			int j = 10000 - data.temp;
+			uint j = 10000 - data.temp;
 			int p = -(int)( nominal_capacity / d_pwr( 2u, j / 2500u ) );
 			if( p > charge_power_max_temp )
 				charge_power_max_temp = p;
@@ -994,6 +996,7 @@ struct mars_t
 					data.limited = true;
 				}
 			}
+			
 			if( data.full_power > full_power )
 				data.full_power = full_power;
 			if( data.setpoint < data.full_power )
@@ -1002,6 +1005,13 @@ struct mars_t
 				data.limited = true;
 			}
 
+			if( data.setpoint > 0 && data.setpoint < discharge_power_min
+			 && !state.is( state.charge ) && !state.is( state.discharge ) )
+			{
+				data.setpoint = 0;
+				data.limited = true;
+			}
+			
 			if( state.is( state.empty ) )
 			{
 				if( data.setpoint > 0 )

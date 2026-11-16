@@ -2,9 +2,9 @@ __GIT_SYMLINKS__
 target=../_inc/db_str.cpp
 target_resolved=/dibom/src/c/_inc/db_str.cpp
 kind=file
-sha256=f7d8841d1f96fc66dc487203f599ce7129aa5374ef1858e862c94e4431f1bb8b
-size=35978
-created=2026-11-15T10:29:04.657655
+sha256=e98ffc5c59f55cffe88507770a14cd716c1273c685a60e06d81396fb67e2ce02
+size=36103
+created=2026-11-16T20:49:12.755047
 --END-HEADER--
 #ifndef DB_STR_INCLUDED
 #define DB_STR_INCLUDED
@@ -90,6 +90,13 @@ uint slen( char const (&str)[len] )
 	return( i );
 }
 
+uint slen( char const *str, uint len )
+{
+	uint i;
+	for( i = 0; i < len && str[i]; i++ );
+	return( i );
+}
+
 struct cstr_t
 {
 	char const* ptr;
@@ -113,7 +120,7 @@ struct cstr_t
 	
 	uint slen() const
 	{
-		return( d_strlen( ptr, len ) );
+		return( d_min( len, ::slen( ptr, len ) ) );
 	}
 	
 	bool terminated() const

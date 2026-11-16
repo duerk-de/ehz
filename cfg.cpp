@@ -148,8 +148,9 @@ struct cfgsection_t
 			{
 				if( !entries[i].getval( buf, val ) )
 				{
-					d_fprint( "cfg: invalid value for entry '%S' of section [%*s]\n",
-							  var, nameend - namebeg, buf + namebeg );
+					d_fprint( "cfg: invalid value for entry '%S' of section [%*s]: %*s\n",
+							  var, entries[i].varend - entries[i].varbeg, buf + entries[i].varbeg,
+							  entries[i].valend - entries[i].valbeg, buf + entries[i].valbeg );
 					break;
 				}
 				entries[i].evaluated = true;
@@ -200,16 +201,21 @@ struct cfgsection_t
 	}
 
 	template <typename t>
-	t hex( cstr_t var, cstr_t def )
+	t hex( cstr_t var, t def )
 	{
 		char buf[0x100];
-		entry( buf, var, def );
+		char defbuf[sizeof(ulint)*2+1];
+		d_fstrn( defbuf, lenof(defbuf), "%2,2,16U", (ulint)def );
+		entry( buf, var, defbuf );
 		uint num;
 		uint len = d_strlen( buf, sizeof(buf) );
 		t r = str2int<t>( buf, 0, len, '\x10', num );
 		if( num != len )
+		{
 			d_fprint( "cfg: value for entry '%s' of section [%*s] not in hex format\n",
 			          var, nameend - namebeg, buf + namebeg );
+			r = def;
+		}
 		return( r );
 	}
 	
@@ -320,6 +326,14 @@ public:
 	{
 		ENSURE( filename.terminated(), "config file name not null terminated\n" );
 		reload();
+	}
+	
+	bool hassection( cstr_t name )
+	{
+		for( uint i = 0; i < n_sections; i++ )
+			if( sections[i].hasname( name ) )
+				return( true );
+		return( false );
 	}
 	
 	cfgsection_t & section( cstr_t name )
